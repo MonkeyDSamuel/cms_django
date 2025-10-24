@@ -3,7 +3,7 @@ from .views import (
     # Staff endpoints
     get_all_staff, get_staff_by_id, add_staff, update_staff, deactivate_staff,
     # Doctor endpoints  
-    get_all_doctors, get_doctor_by_id, create_doctor, update_doctor,
+    get_all_doctors, get_doctor_by_id, get_doctor_by_staff_id, create_doctor, update_doctor,
     # Specialization endpoints
     get_all_specializations, add_specialization
 )
@@ -19,6 +19,7 @@ urlpatterns = [
     # Doctor API endpoints
     path('doctor/', get_all_doctors, name='get_all_doctors'),
     path('doctor/<int:doctor_id>/', get_doctor_by_id, name='get_doctor_by_id'),
+    path('doctor/staff/<int:staff_id>/', get_doctor_by_staff_id, name='get_doctor_by_staff_id'),
     path('doctor/create/', create_doctor, name='create_doctor'),
     path('doctor/update/', update_doctor, name='update_doctor'),
     

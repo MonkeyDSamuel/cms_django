@@ -1,541 +1,631 @@
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.models import User
+from django.contrib.auth import authenticate
 from django.db import transaction
-from django.utils import timezone
-from .models import Staff, Doctor, Specialization
-from .permissions import IsAdminOrStaffAdmin
-from .serializers import StaffSerializer, DoctorSerializer, SpecializationSerializer
+from django.core.exceptions import ValidationError
 import json
+from .models import Staff, Doctor, Specialization
 
 
-@api_view(['GET'])
-@permission_classes([IsAdminOrStaffAdmin])
+# ==================== STAFF VIEWS ====================
+
+@csrf_exempt
 def get_all_staff(request):
     """Get all staff members"""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        staff_members = Staff.objects.filter(IsActive=True).order_by('-CreatedAt')
-        serializer = StaffSerializer(staff_members, many=True)
-        return Response({
+        staff_members = Staff.objects.filter(IsActive=True).select_related('user')
+        staff_data = []
+        
+        for staff in staff_members:
+            staff_data.append({
+                'id': staff.id,
+                'staff_id': staff.StaffId,
+                'username': staff.user.username,
+                'role': staff.Role,
+                'role_display': staff.get_Role_display(),
+                'first_name': staff.FirstName,
+                'last_name': staff.LastName,
+                'full_name': f"{staff.FirstName} {staff.LastName}",
+                'email': staff.Email,
+                'contact': staff.Contact,
+                'dob': staff.DOB.strftime('%Y-%m-%d'),
+                'gender': staff.Gender,
+                'blood_group': staff.BloodGroup,
+                'address': staff.Address,
+                'is_active': staff.IsActive,
+                'created_at': staff.CreatedAt.strftime('%Y-%m-%d %H:%M:%S'),
+                'updated_at': staff.UpdatedAt.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return JsonResponse({
             'success': True,
-            'data': serializer.data
+            'data': staff_data,
+            'count': len(staff_data)
         })
+    
     except Exception as e:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to retrieve staff members: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            'message': f'Error retrieving staff: {str(e)}'
+        }, status=500)
 
 
-@api_view(['GET'])
-@permission_classes([IsAdminOrStaffAdmin])
+@csrf_exempt
 def get_staff_by_id(request, staff_id):
     """Get specific staff member by ID"""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        staff = Staff.objects.get(id=staff_id, IsActive=True)
-        serializer = StaffSerializer(staff)
-        return Response({
+        staff = Staff.objects.select_related('user').get(id=staff_id, IsActive=True)
+        
+        staff_data = {
+            'id': staff.id,
+            'staff_id': staff.StaffId,
+            'username': staff.user.username,
+            'role': staff.Role,
+            'role_display': staff.get_Role_display(),
+            'first_name': staff.FirstName,
+            'last_name': staff.LastName,
+            'full_name': f"{staff.FirstName} {staff.LastName}",
+            'email': staff.Email,
+            'contact': staff.Contact,
+            'dob': staff.DOB.strftime('%Y-%m-%d'),
+            'gender': staff.Gender,
+            'blood_group': staff.BloodGroup,
+            'address': staff.Address,
+            'is_active': staff.IsActive,
+            'created_at': staff.CreatedAt.strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at': staff.UpdatedAt.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        return JsonResponse({
             'success': True,
-            'data': serializer.data
+            'data': staff_data
         })
+    
     except Staff.DoesNotExist:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': 'Staff member not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            'message': 'Staff member not found'
+        }, status=404)
     except Exception as e:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to retrieve staff member: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            'message': f'Error retrieving staff: {str(e)}'
+        }, status=500)
 
 
-@api_view(['POST'])
-@permission_classes([IsAdminOrStaffAdmin])
+@csrf_exempt
 def add_staff(request):
-    """Add a new staff member with user account"""
+    """Add new staff member with user account"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        print(f"DEBUG STAFF: Received request data: {request.data}")
+        data = json.loads(request.body)
+        
+        # Validate required fields
+        required_fields = ['user', 'Role', 'FirstName', 'LastName', 'DOB', 'Gender', 'BloodGroup', 'Address', 'Email', 'Contact']
+        for field in required_fields:
+            if field not in data:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Missing required field: {field}'
+                }, status=400)
+        
+        user_data = data['user']
+        user_required_fields = ['username', 'password', 'email', 'first_name', 'last_name']
+        for field in user_required_fields:
+            if field not in user_data:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Missing required user field: {field}'
+                }, status=400)
+        
         with transaction.atomic():
-            # Extract user data and staff data
-            user_data = request.data.get('user', {})
-            staff_data = request.data.copy()
-            staff_data.pop('user', None)
-            
             # Create user account
-            username = user_data.get('username')
-            password = user_data.get('password')
-            email = user_data.get('email', '')
-            first_name = user_data.get('first_name', '')
-            last_name = user_data.get('last_name', '')
-            
-            if not username or not password:
-                return Response({
-                    'success': False,
-                    'error': 'Username and password are required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Check if username already exists
-            if User.objects.filter(username=username).exists():
-                return Response({
-                    'success': False,
-                    'error': 'Username already exists'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Prevent creating admin staff members through this endpoint
-            role = staff_data.get('Role')
-            if role == 'ADMIN':
-                return Response({
-                    'success': False,
-                    'error': 'Admin users cannot be created through staff creation endpoint. Please use the authentication system to create admin users.'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Create user
             user = User.objects.create_user(
-                username=username,
-                password=password,
-                email=email,
-                first_name=first_name,
-                last_name=last_name
+                username=user_data['username'],
+                password=user_data['password'],
+                email=user_data['email'],
+                first_name=user_data['first_name'],
+                last_name=user_data['last_name']
             )
             
             # Create staff member
-            print(f"DEBUG STAFF: Creating staff with data: {staff_data}")
             staff = Staff.objects.create(
                 user=user,
-                Role=staff_data.get('Role'),
-                FirstName=staff_data.get('FirstName'),
-                LastName=staff_data.get('LastName'),
-                DOB=staff_data.get('DOB'),
-                Gender=staff_data.get('Gender'),
-                BloodGroup=staff_data.get('BloodGroup'),
-                Address=staff_data.get('Address'),
-                Email=staff_data.get('Email'),
-                Contact=staff_data.get('Contact')
+                Role=data['Role'],
+                FirstName=data['FirstName'],
+                LastName=data['LastName'],
+                DOB=data['DOB'],
+                Gender=data['Gender'],
+                BloodGroup=data['BloodGroup'],
+                Address=data['Address'],
+                Email=data['Email'],
+                Contact=data['Contact']
             )
-            print(f"DEBUG STAFF: Staff created successfully with ID: {staff.id}, StaffId: {staff.StaffId}")
             
-            # Return response with username, password, and role
-            return Response({
+            return JsonResponse({
                 'success': True,
                 'message': 'Staff member created successfully',
                 'data': {
                     'staff_id': staff.id,
                     'staff_staff_id': staff.StaffId,
-                    'username': username,
-                    'password': password,
+                    'username': user.username,
+                    'password': user_data['password'],
                     'role': staff.Role,
                     'role_display': staff.get_Role_display(),
                     'full_name': f"{staff.FirstName} {staff.LastName}",
                     'email': staff.Email
                 }
-            }, status=status.HTTP_201_CREATED)
-            
-    except Exception as e:
-        return Response({
+            })
+    
+    except ValidationError as e:
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to create staff member: {str(e)}'
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'message': f'Validation error: {str(e)}'
+        }, status=400)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error creating staff: {str(e)}'
+        }, status=500)
 
 
-@api_view(['PUT', 'PATCH'])
-@permission_classes([IsAdminOrStaffAdmin])
+@csrf_exempt
 def update_staff(request):
     """Update staff member details"""
+    if request.method != 'PUT':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        staff_id = request.data.get('staff_id')
-        if not staff_id:
-            return Response({
-                'success': False,
-                'error': 'staff_id is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        data = json.loads(request.body)
         
-        staff = Staff.objects.get(id=staff_id)
-        
-        # Prevent changing role to ADMIN
-        new_role = request.data.get('Role')
-        if new_role == 'ADMIN':
-            return Response({
+        if 'staff_id' not in data:
+            return JsonResponse({
                 'success': False,
-                'error': 'Cannot change staff role to ADMIN. Admin users must be created through the authentication system.'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'message': 'staff_id is required'
+            }, status=400)
+        
+        staff = Staff.objects.get(id=data['staff_id'], IsActive=True)
         
         # Update staff fields
-        if 'Role' in request.data:
-            staff.Role = request.data['Role']
-        if 'FirstName' in request.data:
-            staff.FirstName = request.data['FirstName']
-        if 'LastName' in request.data:
-            staff.LastName = request.data['LastName']
-        if 'DOB' in request.data:
-            staff.DOB = request.data['DOB']
-        if 'Gender' in request.data:
-            staff.Gender = request.data['Gender']
-        if 'BloodGroup' in request.data:
-            staff.BloodGroup = request.data['BloodGroup']
-        if 'Address' in request.data:
-            staff.Address = request.data['Address']
-        if 'Email' in request.data:
-            staff.Email = request.data['Email']
-        if 'Contact' in request.data:
-            staff.Contact = request.data['Contact']
+        updatable_fields = ['FirstName', 'LastName', 'DOB', 'Gender', 'BloodGroup', 'Address', 'Email', 'Contact']
+        for field in updatable_fields:
+            if field in data:
+                setattr(staff, field, data[field])
         
-        staff.UpdatedAt = timezone.now()
-        staff.save()
-        
-        # Update user account if provided
-        if 'user' in request.data:
-            user_data = request.data['user']
+        # Update user password if provided
+        if 'Password' in data and data['Password']:
             user = staff.user
-            if 'email' in user_data:
-                user.email = user_data['email']
-            if 'first_name' in user_data:
-                user.first_name = user_data['first_name']
-            if 'last_name' in user_data:
-                user.last_name = user_data['last_name']
+            user.set_password(data['Password'])
             user.save()
         
-        # If role is DOC, also update doctor profile if it exists
-        if staff.Role == 'DOC':
-            try:
-                doctor = Doctor.objects.get(Staff=staff)
-                if 'FirstName' in request.data:
-                    doctor.FirstName = request.data['FirstName']
-                if 'LastName' in request.data:
-                    doctor.LastName = request.data['LastName']
-                if 'DOB' in request.data:
-                    doctor.DOB = request.data['DOB']
-                if 'Gender' in request.data:
-                    doctor.Gender = request.data['Gender']
-                if 'BloodGroup' in request.data:
-                    doctor.BloodGroup = request.data['BloodGroup']
-                if 'Address' in request.data:
-                    doctor.Address = request.data['Address']
-                if 'Email' in request.data:
-                    doctor.Email = request.data['Email']
-                if 'Contact' in request.data:
-                    doctor.Contact = request.data['Contact']
-                
-                doctor.UpdatedAt = timezone.now()
-                doctor.save()
-            except Doctor.DoesNotExist:
-                pass  # Doctor profile doesn't exist, skip doctor update
+        staff.save()
         
-        return Response({
+        return JsonResponse({
             'success': True,
-            'message': 'Staff information updated successfully',
+            'message': 'Staff member updated successfully',
             'data': {
-                'staff_id': staff.StaffId,
-                'updated_at': staff.UpdatedAt
+                'staff_id': staff.id,
+                'staff_staff_id': staff.StaffId,
+                'full_name': f"{staff.FirstName} {staff.LastName}",
+                'email': staff.Email,
+                'updated_at': staff.UpdatedAt.strftime('%Y-%m-%d %H:%M:%S')
             }
         })
-        
+    
     except Staff.DoesNotExist:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': 'Staff member not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            'message': 'Staff member not found'
+        }, status=404)
     except Exception as e:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to update staff member: {str(e)}'
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'message': f'Error updating staff: {str(e)}'
+        }, status=500)
 
 
-@api_view(['POST'])
-@permission_classes([IsAdminOrStaffAdmin])
+@csrf_exempt
 def deactivate_staff(request):
     """Deactivate staff member (set IsActive to false)"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        staff_id = request.data.get('staff_id')
-        if not staff_id:
-            return Response({
-                'success': False,
-                'error': 'staff_id is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        data = json.loads(request.body)
         
-        staff = Staff.objects.get(id=staff_id)
+        if 'staff_id' not in data:
+            return JsonResponse({
+                'success': False,
+                'message': 'staff_id is required'
+            }, status=400)
+        
+        staff = Staff.objects.get(id=data['staff_id'], IsActive=True)
         staff.IsActive = False
-        staff.UpdatedAt = timezone.now()
         staff.save()
-        return Response({
+        
+        return JsonResponse({
             'success': True,
-            'message': f'Staff member {staff.StaffId} has been deactivated',
+            'message': 'Staff member deactivated successfully',
             'data': {
-                'staff_id': staff.StaffId,
+                'staff_id': staff.id,
+                'staff_staff_id': staff.StaffId,
+                'full_name': f"{staff.FirstName} {staff.LastName}",
                 'is_active': staff.IsActive
             }
         })
-        
+    
     except Staff.DoesNotExist:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': 'Staff member not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            'message': 'Staff member not found'
+        }, status=404)
     except Exception as e:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to deactivate staff member: {str(e)}'
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'message': f'Error deactivating staff: {str(e)}'
+        }, status=500)
 
 
-# Doctor Views
-@api_view(['GET'])
-@permission_classes([IsAdminOrStaffAdmin])
+# ==================== DOCTOR VIEWS ====================
+
+@csrf_exempt
 def get_all_doctors(request):
     """Get all doctors"""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        doctors = Doctor.objects.filter(IsAvailable=True).order_by('-CreatedAt')
-        serializer = DoctorSerializer(doctors, many=True)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    except Exception as e:
-        return Response({
-            'success': False,
-            'error': f'Failed to retrieve doctors: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['GET'])
-@permission_classes([IsAdminOrStaffAdmin])
-def get_doctor_by_id(request, doctor_id):
-    """Get specific doctor by ID"""
-    try:
-        doctor = Doctor.objects.get(DoctorId=doctor_id, IsAvailable=True)
-        serializer = DoctorSerializer(doctor)
-        return Response({
-            'success': True,
-            'data': serializer.data
-        })
-    except Doctor.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Doctor not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        return Response({
-            'success': False,
-            'error': f'Failed to retrieve doctor: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['POST'])
-@permission_classes([IsAdminOrStaffAdmin])
-def create_doctor(request):
-    """Create a new doctor profile"""
-    try:
-        print(f"DEBUG: Received request data: {request.data}")
-        staff_id = request.data.get('staff_id')
-        if not staff_id:
-            return Response({
-                'success': False,
-                'error': 'staff_id is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        doctors = Doctor.objects.select_related('StaffId__user', 'SpecializationId').filter(StaffId__IsActive=True)
+        doctor_data = []
         
-        # Check if staff exists and has DOC role
-        try:
-            staff = Staff.objects.get(id=staff_id, Role='DOC', IsActive=True)
-            print(f"DEBUG: Found staff: {staff.StaffId} - {staff.FirstName} {staff.LastName} - Role: {staff.Role}")
-        except Staff.DoesNotExist:
-            print(f"DEBUG: Staff not found or not a doctor - ID: {staff_id}")
-            return Response({
-                'success': False,
-                'error': 'Staff member not found or not a doctor'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Check if doctor profile already exists
-        if Doctor.objects.filter(StaffId=staff).exists():
-            print(f"DEBUG: Doctor profile already exists for staff {staff.StaffId}")
-            return Response({
-                'success': False,
-                'error': 'Doctor profile already exists for this staff member'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get specialization
-        specialization_id = request.data.get('specialization_id')
-        if not specialization_id:
-            return Response({
-                'success': False,
-                'error': 'specialization_id is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            specialization = Specialization.objects.get(id=specialization_id, IsActive=True)
-            print(f"DEBUG: Found specialization: {specialization.SpecializationName}")
-        except Specialization.DoesNotExist:
-            print(f"DEBUG: Specialization not found - ID: {specialization_id}")
-            return Response({
-                'success': False,
-                'error': 'Specialization not found or not active'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Create doctor profile
-        print(f"DEBUG: Creating doctor with data:")
-        print(f"  - StaffId: {staff}")
-        print(f"  - SpecializationId: {specialization}")
-        print(f"  - ConsultationFee: {request.data.get('consultation_fee', 0.0)}")
-        print(f"  - ConsultationDays: {request.data.get('consultation_days', '')}")
-        print(f"  - ConsultationTime: {request.data.get('consultation_time', '')}")
-        print(f"  - YearsOfExperience: {request.data.get('years_of_experience', 0)}")
-        print(f"  - IsAvailable: {request.data.get('is_available', True)}")
-        
-        doctor = Doctor.objects.create(
-            StaffId=staff,
-            SpecializationId=specialization,
-            ConsultationFee=request.data.get('consultation_fee', 0.0),
-            ConsultationDays=request.data.get('consultation_days', ''),
-            ConsultationTime=request.data.get('consultation_time', ''),
-            YearsOfExperience=request.data.get('years_of_experience', 0),
-            IsAvailable=request.data.get('is_available', True)
-        )
-        print(f"DEBUG: Doctor created successfully with ID: {doctor.DoctorId}")
-        
-        return Response({
-            'success': True,
-            'message': 'Doctor profile created successfully',
-            'data': {
+        for doctor in doctors:
+            doctor_data.append({
                 'doctor_id': doctor.DoctorId,
-                'staff_id': staff.StaffId,
-                'full_name': f"{staff.FirstName} {staff.LastName}",
-                'specialization': specialization.SpecializationName,
+                'staff_id': doctor.StaffId.id,
+                'staff_staff_id': doctor.StaffId.StaffId,
+                'username': doctor.StaffId.user.username,
+                'full_name': f"Dr. {doctor.StaffId.FirstName} {doctor.StaffId.LastName}",
+                'specialization': doctor.SpecializationId.SpecializationName,
+                'specialization_id': doctor.SpecializationId.id,
                 'consultation_fee': float(doctor.ConsultationFee),
                 'consultation_days': doctor.ConsultationDays,
                 'consultation_time': doctor.ConsultationTime,
                 'years_of_experience': doctor.YearsOfExperience,
+                'is_available': doctor.IsAvailable,
+                'email': doctor.StaffId.Email,
+                'contact': doctor.StaffId.Contact,
+                'created_at': doctor.CreatedAt.strftime('%Y-%m-%d %H:%M:%S'),
+                'updated_at': doctor.UpdatedAt.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return JsonResponse({
+            'success': True,
+            'data': doctor_data,
+            'count': len(doctor_data)
+        })
+    
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error retrieving doctors: {str(e)}'
+        }, status=500)
+
+
+@csrf_exempt
+def get_doctor_by_id(request, doctor_id):
+    """Get specific doctor by ID"""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
+    try:
+        doctor = Doctor.objects.select_related('StaffId__user', 'SpecializationId').get(DoctorId=doctor_id, StaffId__IsActive=True)
+        
+        doctor_data = {
+            'doctor_id': doctor.DoctorId,
+            'staff_id': doctor.StaffId.id,
+            'staff_staff_id': doctor.StaffId.StaffId,
+            'username': doctor.StaffId.user.username,
+            'full_name': f"Dr. {doctor.StaffId.FirstName} {doctor.StaffId.LastName}",
+            'specialization': doctor.SpecializationId.SpecializationName,
+            'specialization_id': doctor.SpecializationId.id,
+            'consultation_fee': float(doctor.ConsultationFee),
+            'consultation_days': doctor.ConsultationDays,
+            'consultation_time': doctor.ConsultationTime,
+            'years_of_experience': doctor.YearsOfExperience,
+            'is_available': doctor.IsAvailable,
+            'email': doctor.StaffId.Email,
+            'contact': doctor.StaffId.Contact,
+            'created_at': doctor.CreatedAt.strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at': doctor.UpdatedAt.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        return JsonResponse({
+            'success': True,
+            'data': doctor_data
+        })
+    
+    except Doctor.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Doctor not found'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error retrieving doctor: {str(e)}'
+        }, status=500)
+
+
+@csrf_exempt
+def get_doctor_by_staff_id(request, staff_id):
+    """Get doctor by staff ID"""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
+    try:
+        doctor = Doctor.objects.select_related('StaffId__user', 'SpecializationId').get(StaffId__id=staff_id, StaffId__IsActive=True)
+        
+        doctor_data = {
+            'doctor_id': doctor.DoctorId,
+            'staff_id': doctor.StaffId.id,
+            'staff_staff_id': doctor.StaffId.StaffId,
+            'username': doctor.StaffId.user.username,
+            'full_name': f"Dr. {doctor.StaffId.FirstName} {doctor.StaffId.LastName}",
+            'specialization': doctor.SpecializationId.SpecializationName,
+            'specialization_id': doctor.SpecializationId.id,
+            'consultation_fee': float(doctor.ConsultationFee),
+            'consultation_days': doctor.ConsultationDays,
+            'consultation_time': doctor.ConsultationTime,
+            'years_of_experience': doctor.YearsOfExperience,
+            'is_available': doctor.IsAvailable,
+            'email': doctor.StaffId.Email,
+            'contact': doctor.StaffId.Contact,
+            'created_at': doctor.CreatedAt.strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at': doctor.UpdatedAt.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        return JsonResponse({
+            'success': True,
+            'data': doctor_data
+        })
+    
+    except Doctor.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Doctor profile not found for this staff member'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error retrieving doctor: {str(e)}'
+        }, status=500)
+
+
+@csrf_exempt
+def create_doctor(request):
+    """Create new doctor profile"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        
+        # Validate required fields
+        required_fields = ['staff_id', 'specialization_id', 'consultation_fee', 'consultation_days', 'consultation_time', 'years_of_experience']
+        for field in required_fields:
+            if field not in data:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Missing required field: {field}'
+                }, status=400)
+        
+        # Check if staff member exists and is a doctor
+        staff = Staff.objects.get(id=data['staff_id'], Role=Staff.RoleChoices.DOCTOR, IsActive=True)
+        
+        # Check if doctor profile already exists
+        if Doctor.objects.filter(StaffId=staff).exists():
+            return JsonResponse({
+                'success': False,
+                'message': 'Doctor profile already exists for this staff member'
+            }, status=400)
+        
+        # Check if specialization exists
+        specialization = Specialization.objects.get(id=data['specialization_id'], IsActive=True)
+        
+        # Create doctor profile
+        doctor = Doctor.objects.create(
+            StaffId=staff,
+            SpecializationId=specialization,
+            ConsultationFee=data['consultation_fee'],
+            ConsultationDays=data['consultation_days'],
+            ConsultationTime=data['consultation_time'],
+            YearsOfExperience=data['years_of_experience'],
+            IsAvailable=data.get('is_available', True)
+        )
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Doctor profile created successfully',
+            'data': {
+                'doctor_id': doctor.DoctorId,
+                'staff_id': staff.id,
+                'staff_staff_id': staff.StaffId,
+                'full_name': f"Dr. {staff.FirstName} {staff.LastName}",
+                'specialization': specialization.SpecializationName,
+                'consultation_fee': float(doctor.ConsultationFee),
+                'years_of_experience': doctor.YearsOfExperience,
                 'is_available': doctor.IsAvailable
             }
-        }, status=status.HTTP_201_CREATED)
-        
-    except Exception as e:
-        print(f"DEBUG: Exception occurred: {str(e)}")
-        print(f"DEBUG: Exception type: {type(e)}")
-        import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
-        return Response({
+        })
+    
+    except Staff.DoesNotExist:
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to create doctor profile: {str(e)}'
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'message': 'Staff member not found or not a doctor'
+        }, status=404)
+    except Specialization.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Specialization not found'
+        }, status=404)
+    except ValidationError as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Validation error: {str(e)}'
+        }, status=400)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error creating doctor: {str(e)}'
+        }, status=500)
 
 
-@api_view(['PUT', 'PATCH'])
-@permission_classes([IsAdminOrStaffAdmin])
+@csrf_exempt
 def update_doctor(request):
-    """Update doctor profile"""
+    """Update doctor details"""
+    if request.method != 'PUT':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        doctor_id = request.data.get('doctor_id')
-        if not doctor_id:
-            return Response({
-                'success': False,
-                'error': 'doctor_id is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        data = json.loads(request.body)
         
-        doctor = Doctor.objects.get(DoctorId=doctor_id)
+        if 'doctor_id' not in data:
+            return JsonResponse({
+                'success': False,
+                'message': 'doctor_id is required'
+            }, status=400)
+        
+        doctor = Doctor.objects.select_related('StaffId', 'SpecializationId').get(DoctorId=data['doctor_id'], StaffId__IsActive=True)
         
         # Update doctor fields
-        if 'specialization_id' in request.data:
-            try:
-                specialization = Specialization.objects.get(id=request.data['specialization_id'], IsActive=True)
-                doctor.SpecializationId = specialization
-            except Specialization.DoesNotExist:
-                return Response({
-                    'success': False,
-                    'error': 'Specialization not found or not active'
-                }, status=status.HTTP_404_NOT_FOUND)
-        if 'consultation_fee' in request.data:
-            doctor.ConsultationFee = request.data['consultation_fee']
-        if 'consultation_days' in request.data:
-            doctor.ConsultationDays = request.data['consultation_days']
-        if 'consultation_time' in request.data:
-            doctor.ConsultationTime = request.data['consultation_time']
-        if 'years_of_experience' in request.data:
-            doctor.YearsOfExperience = request.data['years_of_experience']
-        if 'is_available' in request.data:
-            doctor.IsAvailable = request.data['is_available']
+        updatable_fields = ['consultation_fee', 'consultation_days', 'consultation_time', 'years_of_experience', 'is_available']
+        for field in updatable_fields:
+            if field in data:
+                setattr(doctor, field, data[field])
         
-        doctor.UpdatedAt = timezone.now()
+        # Update specialization if provided
+        if 'specialization_id' in data:
+            specialization = Specialization.objects.get(id=data['specialization_id'], IsActive=True)
+            doctor.SpecializationId = specialization
+        
         doctor.save()
         
-        return Response({
+        return JsonResponse({
             'success': True,
             'message': 'Doctor profile updated successfully',
             'data': {
                 'doctor_id': doctor.DoctorId,
-                'updated_at': doctor.UpdatedAt
+                'staff_id': doctor.StaffId.id,
+                'full_name': f"Dr. {doctor.StaffId.FirstName} {doctor.StaffId.LastName}",
+                'specialization': doctor.SpecializationId.SpecializationName,
+                'consultation_fee': float(doctor.ConsultationFee),
+                'years_of_experience': doctor.YearsOfExperience,
+                'is_available': doctor.IsAvailable,
+                'updated_at': doctor.UpdatedAt.strftime('%Y-%m-%d %H:%M:%S')
             }
         })
-        
+    
     except Doctor.DoesNotExist:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': 'Doctor not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            'message': 'Doctor not found'
+        }, status=404)
+    except Specialization.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Specialization not found'
+        }, status=404)
     except Exception as e:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to update doctor: {str(e)}'
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'message': f'Error updating doctor: {str(e)}'
+        }, status=500)
 
 
-# Specialization Views
-@api_view(['GET'])
-@permission_classes([IsAdminOrStaffAdmin])
+# ==================== SPECIALIZATION VIEWS ====================
+
+@csrf_exempt
 def get_all_specializations(request):
     """Get all specializations"""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        specializations = Specialization.objects.filter(IsActive=True).order_by('SpecializationName')
-        serializer = SpecializationSerializer(specializations, many=True)
-        return Response({
+        specializations = Specialization.objects.filter(IsActive=True)
+        specialization_data = []
+        
+        for spec in specializations:
+            specialization_data.append({
+                'id': spec.id,
+                'name': spec.SpecializationName,
+                'description': spec.Description,
+                'is_active': spec.IsActive,
+                'created_at': spec.CreatedAt.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return JsonResponse({
             'success': True,
-            'data': serializer.data
+            'data': specialization_data,
+            'count': len(specialization_data)
         })
+    
     except Exception as e:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to retrieve specializations: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            'message': f'Error retrieving specializations: {str(e)}'
+        }, status=500)
 
 
-@api_view(['POST'])
-@permission_classes([IsAdminOrStaffAdmin])
+@csrf_exempt
 def add_specialization(request):
-    """Add a new specialization"""
+    """Add new specialization"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
     try:
-        name = request.data.get('SpecializationName')
-        description = request.data.get('Description', '')
+        data = json.loads(request.body)
         
-        if not name:
-            return Response({
-                'success': False,
-                'error': 'Specialization name is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        # Validate required fields
+        required_fields = ['name', 'description']
+        for field in required_fields:
+            if field not in data:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Missing required field: {field}'
+                }, status=400)
         
-        # Check if specialization already exists
-        if Specialization.objects.filter(SpecializationName=name, IsActive=True).exists():
-            return Response({
-                'success': False,
-                'error': 'Specialization already exists'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+        # Create specialization
         specialization = Specialization.objects.create(
-            SpecializationName=name,
-            Description=description
+            SpecializationName=data['name'],
+            Description=data['description'],
+            IsActive=data.get('is_active', True)
         )
         
-        return Response({
+        return JsonResponse({
             'success': True,
             'message': 'Specialization added successfully',
             'data': {
-                'specialization_id': specialization.id,
+                'id': specialization.id,
                 'name': specialization.SpecializationName,
-                'description': specialization.Description
+                'description': specialization.Description,
+                'is_active': specialization.IsActive,
+                'created_at': specialization.CreatedAt.strftime('%Y-%m-%d %H:%M:%S')
             }
-        }, status=status.HTTP_201_CREATED)
-        
+        })
+    
     except Exception as e:
-        return Response({
+        return JsonResponse({
             'success': False,
-            'error': f'Failed to add specialization: {str(e)}'
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'message': f'Error adding specialization: {str(e)}'
+        }, status=500)
+
