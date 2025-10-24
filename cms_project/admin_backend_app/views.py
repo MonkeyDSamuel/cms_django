@@ -56,6 +56,7 @@ def get_staff_by_id(request, staff_id):
 def add_staff(request):
     """Add a new staff member with user account"""
     try:
+        print(f"DEBUG STAFF: Received request data: {request.data}")
         with transaction.atomic():
             # Extract user data and staff data
             user_data = request.data.get('user', {})
@@ -100,6 +101,7 @@ def add_staff(request):
             )
             
             # Create staff member
+            print(f"DEBUG STAFF: Creating staff with data: {staff_data}")
             staff = Staff.objects.create(
                 user=user,
                 Role=staff_data.get('Role'),
@@ -112,6 +114,7 @@ def add_staff(request):
                 Email=staff_data.get('Email'),
                 Contact=staff_data.get('Contact')
             )
+            print(f"DEBUG STAFF: Staff created successfully with ID: {staff.id}, StaffId: {staff.StaffId}")
             
             # Return response with username, password, and role
             return Response({
@@ -283,7 +286,7 @@ def deactivate_staff(request):
 def get_all_doctors(request):
     """Get all doctors"""
     try:
-        doctors = Doctor.objects.filter(IsActive=True).order_by('-CreatedAt')
+        doctors = Doctor.objects.filter(IsAvailable=True).order_by('-CreatedAt')
         serializer = DoctorSerializer(doctors, many=True)
         return Response({
             'success': True,
@@ -301,7 +304,7 @@ def get_all_doctors(request):
 def get_doctor_by_id(request, doctor_id):
     """Get specific doctor by ID"""
     try:
-        doctor = Doctor.objects.get(id=doctor_id, IsActive=True)
+        doctor = Doctor.objects.get(DoctorId=doctor_id, IsAvailable=True)
         serializer = DoctorSerializer(doctor)
         return Response({
             'success': True,
@@ -324,6 +327,7 @@ def get_doctor_by_id(request, doctor_id):
 def create_doctor(request):
     """Create a new doctor profile"""
     try:
+        print(f"DEBUG: Received request data: {request.data}")
         staff_id = request.data.get('staff_id')
         if not staff_id:
             return Response({
@@ -334,52 +338,82 @@ def create_doctor(request):
         # Check if staff exists and has DOC role
         try:
             staff = Staff.objects.get(id=staff_id, Role='DOC', IsActive=True)
+            print(f"DEBUG: Found staff: {staff.StaffId} - {staff.FirstName} {staff.LastName} - Role: {staff.Role}")
         except Staff.DoesNotExist:
+            print(f"DEBUG: Staff not found or not a doctor - ID: {staff_id}")
             return Response({
                 'success': False,
                 'error': 'Staff member not found or not a doctor'
             }, status=status.HTTP_404_NOT_FOUND)
         
         # Check if doctor profile already exists
-        if Doctor.objects.filter(Staff=staff).exists():
+        if Doctor.objects.filter(StaffId=staff).exists():
+            print(f"DEBUG: Doctor profile already exists for staff {staff.StaffId}")
             return Response({
                 'success': False,
                 'error': 'Doctor profile already exists for this staff member'
             }, status=status.HTTP_400_BAD_REQUEST)
         
+        # Get specialization
+        specialization_id = request.data.get('specialization_id')
+        if not specialization_id:
+            return Response({
+                'success': False,
+                'error': 'specialization_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            specialization = Specialization.objects.get(id=specialization_id, IsActive=True)
+            print(f"DEBUG: Found specialization: {specialization.SpecializationName}")
+        except Specialization.DoesNotExist:
+            print(f"DEBUG: Specialization not found - ID: {specialization_id}")
+            return Response({
+                'success': False,
+                'error': 'Specialization not found or not active'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
         # Create doctor profile
+        print(f"DEBUG: Creating doctor with data:")
+        print(f"  - StaffId: {staff}")
+        print(f"  - SpecializationId: {specialization}")
+        print(f"  - ConsultationFee: {request.data.get('consultation_fee', 0.0)}")
+        print(f"  - ConsultationDays: {request.data.get('consultation_days', '')}")
+        print(f"  - ConsultationTime: {request.data.get('consultation_time', '')}")
+        print(f"  - YearsOfExperience: {request.data.get('years_of_experience', 0)}")
+        print(f"  - IsAvailable: {request.data.get('is_available', True)}")
+        
         doctor = Doctor.objects.create(
-            Staff=staff,
-            FirstName=request.data.get('FirstName', staff.FirstName),
-            LastName=request.data.get('LastName', staff.LastName),
-            DOB=request.data.get('DOB', staff.DOB),
-            Gender=request.data.get('Gender', staff.Gender),
-            BloodGroup=request.data.get('BloodGroup', staff.BloodGroup),
-            Address=request.data.get('Address', staff.Address),
-            Email=request.data.get('Email', staff.Email),
-            Contact=request.data.get('Contact', staff.Contact),
-            Specialization=request.data.get('Specialization', ''),
-            Qualification=request.data.get('Qualification', ''),
-            Experience=request.data.get('Experience', 0),
-            ConsultationFee=request.data.get('ConsultationFee', 0.0)
+            StaffId=staff,
+            SpecializationId=specialization,
+            ConsultationFee=request.data.get('consultation_fee', 0.0),
+            ConsultationDays=request.data.get('consultation_days', ''),
+            ConsultationTime=request.data.get('consultation_time', ''),
+            YearsOfExperience=request.data.get('years_of_experience', 0),
+            IsAvailable=request.data.get('is_available', True)
         )
+        print(f"DEBUG: Doctor created successfully with ID: {doctor.DoctorId}")
         
         return Response({
             'success': True,
             'message': 'Doctor profile created successfully',
             'data': {
-                'doctor_id': doctor.id,
-                'doctor_staff_id': doctor.DoctorId,
+                'doctor_id': doctor.DoctorId,
                 'staff_id': staff.StaffId,
-                'full_name': f"{doctor.FirstName} {doctor.LastName}",
-                'specialization': doctor.Specialization,
-                'qualification': doctor.Qualification,
-                'experience': doctor.Experience,
-                'consultation_fee': doctor.ConsultationFee
+                'full_name': f"{staff.FirstName} {staff.LastName}",
+                'specialization': specialization.SpecializationName,
+                'consultation_fee': float(doctor.ConsultationFee),
+                'consultation_days': doctor.ConsultationDays,
+                'consultation_time': doctor.ConsultationTime,
+                'years_of_experience': doctor.YearsOfExperience,
+                'is_available': doctor.IsAvailable
             }
         }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
+        print(f"DEBUG: Exception occurred: {str(e)}")
+        print(f"DEBUG: Exception type: {type(e)}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
         return Response({
             'success': False,
             'error': f'Failed to create doctor profile: {str(e)}'
@@ -398,33 +432,28 @@ def update_doctor(request):
                 'error': 'doctor_id is required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        doctor = Doctor.objects.get(id=doctor_id)
+        doctor = Doctor.objects.get(DoctorId=doctor_id)
         
         # Update doctor fields
-        if 'FirstName' in request.data:
-            doctor.FirstName = request.data['FirstName']
-        if 'LastName' in request.data:
-            doctor.LastName = request.data['LastName']
-        if 'DOB' in request.data:
-            doctor.DOB = request.data['DOB']
-        if 'Gender' in request.data:
-            doctor.Gender = request.data['Gender']
-        if 'BloodGroup' in request.data:
-            doctor.BloodGroup = request.data['BloodGroup']
-        if 'Address' in request.data:
-            doctor.Address = request.data['Address']
-        if 'Email' in request.data:
-            doctor.Email = request.data['Email']
-        if 'Contact' in request.data:
-            doctor.Contact = request.data['Contact']
-        if 'Specialization' in request.data:
-            doctor.Specialization = request.data['Specialization']
-        if 'Qualification' in request.data:
-            doctor.Qualification = request.data['Qualification']
-        if 'Experience' in request.data:
-            doctor.Experience = request.data['Experience']
-        if 'ConsultationFee' in request.data:
-            doctor.ConsultationFee = request.data['ConsultationFee']
+        if 'specialization_id' in request.data:
+            try:
+                specialization = Specialization.objects.get(id=request.data['specialization_id'], IsActive=True)
+                doctor.SpecializationId = specialization
+            except Specialization.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Specialization not found or not active'
+                }, status=status.HTTP_404_NOT_FOUND)
+        if 'consultation_fee' in request.data:
+            doctor.ConsultationFee = request.data['consultation_fee']
+        if 'consultation_days' in request.data:
+            doctor.ConsultationDays = request.data['consultation_days']
+        if 'consultation_time' in request.data:
+            doctor.ConsultationTime = request.data['consultation_time']
+        if 'years_of_experience' in request.data:
+            doctor.YearsOfExperience = request.data['years_of_experience']
+        if 'is_available' in request.data:
+            doctor.IsAvailable = request.data['is_available']
         
         doctor.UpdatedAt = timezone.now()
         doctor.save()

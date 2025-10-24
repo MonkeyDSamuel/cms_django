@@ -31,10 +31,18 @@ class AppointmentSerializer(serializers.ModelSerializer):
     doctor_name = serializers.SerializerMethodField()
     doctor_specialization = serializers.SerializerMethodField()
     
+    # Include patient details in the response
+    patient_name = serializers.SerializerMethodField()
+    patient_id = serializers.SerializerMethodField()
+    patient_phone = serializers.SerializerMethodField()
+    patient_age = serializers.SerializerMethodField()
+    patient_gender = serializers.SerializerMethodField()
+    
     class Meta:
         model = Appointment
         fields = [
-            'id', 'AppointmentId', 'DoctorId', 'doctor_name', 'doctor_specialization',
+            'id', 'AppointmentId', 'DoctorId', 'PatientId', 'doctor_name', 'doctor_specialization',
+            'patient_name', 'patient_id', 'patient_phone', 'patient_age', 'patient_gender',
             'TokenNo', 'Date', 'Status', 'Created_At'
         ]
         read_only_fields = ['id', 'AppointmentId', 'Created_At']
@@ -46,13 +54,33 @@ class AppointmentSerializer(serializers.ModelSerializer):
     def get_doctor_specialization(self, obj):
         """Get doctor's specialization"""
         return obj.DoctorId.SpecializationId.SpecializationName
+    
+    def get_patient_name(self, obj):
+        """Get patient's full name"""
+        return obj.PatientId.Name if obj.PatientId else "No Patient"
+    
+    def get_patient_id(self, obj):
+        """Get patient's ID"""
+        return obj.PatientId.PatientId if obj.PatientId else "N/A"
+    
+    def get_patient_phone(self, obj):
+        """Get patient's phone number"""
+        return obj.PatientId.PhoneNumber if obj.PatientId else "N/A"
+    
+    def get_patient_age(self, obj):
+        """Get patient's age"""
+        return obj.PatientId.Age if obj.PatientId else "N/A"
+    
+    def get_patient_gender(self, obj):
+        """Get patient's gender"""
+        return obj.PatientId.get_Gender_display() if obj.PatientId else "N/A"
 
 class AppointmentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating new appointments"""
     
     class Meta:
         model = Appointment
-        fields = ['DoctorId', 'TokenNo', 'Date', 'Status']
+        fields = ['DoctorId', 'PatientId', 'TokenNo', 'Date', 'Status']
     
     def validate(self, attrs):
         """Custom validation for appointment creation"""
