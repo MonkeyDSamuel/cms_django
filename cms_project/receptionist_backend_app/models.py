@@ -82,6 +82,7 @@ class Appointment(models.Model):
     id = models.AutoField(primary_key=True)
     AppointmentId = models.CharField(max_length=10, unique=True, editable=False, blank=True)
     DoctorId = models.ForeignKey(Doctor, on_delete=models.CASCADE, related_name='appointments')
+    PatientId = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='appointments', null=True, blank=True)
     TokenNo = models.PositiveIntegerField()
     Date = models.DateField()
     Status = models.CharField(max_length=20, choices=StatusChoices.choices, default=StatusChoices.SCHEDULED)
@@ -119,7 +120,8 @@ class Appointment(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.AppointmentId} - Dr. {self.DoctorId.StaffId.FirstName} {self.DoctorId.StaffId.LastName} - {self.Date}"
+        patient_name = self.PatientId.Name if self.PatientId else "No Patient"
+        return f"{self.AppointmentId} - Dr. {self.DoctorId.StaffId.FirstName} {self.DoctorId.StaffId.LastName} - {patient_name} - {self.Date}"
 
     class Meta:
         ordering = ['AppointmentId']

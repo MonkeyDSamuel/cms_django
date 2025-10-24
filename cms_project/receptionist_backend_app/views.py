@@ -8,13 +8,13 @@ from .serializers import (
     PatientSerializer, PatientCreateSerializer,
     AppointmentSerializer, AppointmentCreateSerializer
 )
-from .permissions import IsReceptionist, IsReceptionistOrAdmin
+from .permissions import IsReceptionist, IsReceptionistOrAdmin, IsReceptionistOrDoctor, IsReceptionistOrDoctorReadOnly
 from admin_backend_app.models import Doctor
 
 class PatientListCreateView(generics.ListCreateAPIView):
     """View for listing all patients and creating new patients"""
     
-    permission_classes = [IsReceptionist]
+    permission_classes = [IsReceptionistOrDoctorReadOnly]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['Gender', 'IsActive']
     search_fields = ['Name', 'PatientId', 'PhoneNumber']
@@ -25,6 +25,19 @@ class PatientListCreateView(generics.ListCreateAPIView):
         if self.request.method == 'POST':
             return PatientCreateSerializer
         return PatientSerializer
+    
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        if self.request.method == 'GET':
+            # Allow both receptionists and doctors to view patients
+            permission_classes = [IsReceptionistOrDoctor]
+        else:
+            # Only allow receptionists to create patients
+            permission_classes = [IsReceptionist]
+        
+        return [permission() for permission in permission_classes]
     
     def get_queryset(self):
         return Patient.objects.all()
@@ -45,7 +58,7 @@ class PatientListCreateView(generics.ListCreateAPIView):
 class PatientDetailView(generics.RetrieveAPIView):
     """View for retrieving a specific patient"""
     
-    permission_classes = [IsReceptionist]
+    permission_classes = [IsReceptionistOrDoctor]
     serializer_class = PatientSerializer
     queryset = Patient.objects.all()
     lookup_field = 'id'
@@ -53,7 +66,7 @@ class PatientDetailView(generics.RetrieveAPIView):
 class AppointmentListCreateView(generics.ListCreateAPIView):
     """View for listing all appointments and creating new appointments"""
     
-    permission_classes = [IsReceptionist]
+    permission_classes = [IsReceptionistOrDoctorReadOnly]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['Status', 'DoctorId', 'Date']
     search_fields = ['AppointmentId']
@@ -65,8 +78,33 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
             return AppointmentCreateSerializer
         return AppointmentSerializer
     
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        if self.request.method == 'GET':
+            # Allow both receptionists and doctors to view appointments
+            permission_classes = [IsReceptionistOrDoctor]
+        else:
+            # Only allow receptionists to create appointments
+            permission_classes = [IsReceptionist]
+        
+        return [permission() for permission in permission_classes]
+    
     def get_queryset(self):
-        return Appointment.objects.select_related('DoctorId__StaffId', 'DoctorId__SpecializationId').all()
+        queryset = Appointment.objects.select_related('DoctorId__StaffId', 'DoctorId__SpecializationId').all()
+        
+        # If the user is a doctor, filter to show only their appointments
+        if hasattr(self.request.user, 'staff') and self.request.user.staff.Role == 'DOCTOR':
+            try:
+                from admin_backend_app.models import Doctor
+                doctor = Doctor.objects.get(StaffId=self.request.user.staff)
+                queryset = queryset.filter(DoctorId=doctor)
+            except:
+                # If doctor record not found, return empty queryset
+                queryset = queryset.none()
+        
+        return queryset
     
     def create(self, request, *args, **kwargs):
         """Create a new appointment"""
@@ -84,15 +122,29 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
 class AppointmentDetailView(generics.RetrieveAPIView):
     """View for retrieving a specific appointment"""
     
-    permission_classes = [IsReceptionist]
+    permission_classes = [IsReceptionistOrDoctor]
     serializer_class = AppointmentSerializer
-    queryset = Appointment.objects.select_related('DoctorId__StaffId', 'DoctorId__SpecializationId').all()
     lookup_field = 'id'
+    
+    def get_queryset(self):
+        queryset = Appointment.objects.select_related('DoctorId__StaffId', 'DoctorId__SpecializationId').all()
+        
+        # If the user is a doctor, filter to show only their appointments
+        if hasattr(self.request.user, 'staff') and self.request.user.staff.Role == 'DOCTOR':
+            try:
+                from admin_backend_app.models import Doctor
+                doctor = Doctor.objects.get(StaffId=self.request.user.staff)
+                queryset = queryset.filter(DoctorId=doctor)
+            except:
+                # If doctor record not found, return empty queryset
+                queryset = queryset.none()
+        
+        return queryset
 
 class DoctorListView(generics.ListAPIView):
     """View for listing all available doctors for appointment booking"""
     
-    permission_classes = [IsReceptionist]
+    permission_classes = [IsReceptionistOrDoctor]
     queryset = Doctor.objects.filter(IsAvailable=True).select_related('StaffId', 'SpecializationId')
     
     def list(self, request, *args, **kwargs):
