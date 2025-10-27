@@ -18,7 +18,7 @@ def get_all_staff(request):
         return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
     
     try:
-        staff_members = Staff.objects.filter(IsActive=True).select_related('user')
+        staff_members = Staff.objects.all().select_related('user')
         staff_data = []
         
         for staff in staff_members:
@@ -62,7 +62,7 @@ def get_staff_by_id(request, staff_id):
         return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
     
     try:
-        staff = Staff.objects.select_related('user').get(id=staff_id, IsActive=True)
+        staff = Staff.objects.select_related('user').get(id=staff_id)
         
         staff_data = {
             'id': staff.id,
@@ -194,7 +194,7 @@ def update_staff(request):
                 'message': 'staff_id is required'
             }, status=400)
         
-        staff = Staff.objects.get(id=data['staff_id'], IsActive=True)
+        staff = Staff.objects.get(id=data['staff_id'])
         
         # Update staff fields
         updatable_fields = ['FirstName', 'LastName', 'DOB', 'Gender', 'BloodGroup', 'Address', 'Email', 'Contact']
@@ -273,6 +273,50 @@ def deactivate_staff(request):
         return JsonResponse({
             'success': False,
             'message': f'Error deactivating staff: {str(e)}'
+        }, status=500)
+
+
+@csrf_exempt
+def toggle_staff_status(request):
+    """Toggle staff member IsActive status"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        
+        if 'staff_id' not in data:
+            return JsonResponse({
+                'success': False,
+                'message': 'staff_id is required'
+            }, status=400)
+        
+        staff = Staff.objects.get(id=data['staff_id'])
+        staff.IsActive = not staff.IsActive
+        staff.save()
+        
+        status_text = 'activated' if staff.IsActive else 'deactivated'
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Staff member {status_text} successfully',
+            'data': {
+                'staff_id': staff.id,
+                'staff_staff_id': staff.StaffId,
+                'full_name': f"{staff.FirstName} {staff.LastName}",
+                'is_active': staff.IsActive
+            }
+        })
+    
+    except Staff.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Staff member not found'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error toggling staff status: {str(e)}'
         }, status=500)
 
 

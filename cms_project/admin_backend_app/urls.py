@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     # Staff endpoints
-    get_all_staff, get_staff_by_id, add_staff, update_staff, deactivate_staff,
+    get_all_staff, get_staff_by_id, add_staff, update_staff, deactivate_staff, toggle_staff_status,
     # Doctor endpoints  
     get_all_doctors, get_doctor_by_id, get_doctor_by_staff_id, create_doctor, update_doctor,
     # Specialization endpoints
@@ -15,6 +15,7 @@ urlpatterns = [
     path('staff/add/', add_staff, name='add_staff'),
     path('staff/update/', update_staff, name='update_staff'),
     path('staff/deactive/', deactivate_staff, name='deactivate_staff'),
+    path('staff/toggle-status/', toggle_staff_status, name='toggle_staff_status'),
     
     # Doctor API endpoints
     path('doctor/', get_all_doctors, name='get_all_doctors'),

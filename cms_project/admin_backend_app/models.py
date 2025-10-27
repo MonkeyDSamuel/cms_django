@@ -105,13 +105,13 @@ class Doctor(models.Model):
     )
     SpecializationId = models.ForeignKey(Specialization, on_delete=models.CASCADE)
     ConsultationFee = models.DecimalField(max_digits=10, decimal_places=2)
-    ConsultationDays = models.CharField(
-        max_length=100, 
-        help_text="Eg: Monday-Friday (or) Monday, Tuesday, Friday"
+    ConsultationDays = models.JSONField(
+        default=list,
+        help_text="Array of integers representing days of the week (1=Sunday, 2=Monday, etc.)"
     )
     ConsultationTime = models.CharField(
         max_length=100,
-        help_text="Eg: 9:00 AM - 5:00 PM"
+        help_text="24-hour format: HH:MM-HH:MM (e.g., 09:00-17:00)"
     )
     YearsOfExperience = models.PositiveIntegerField(default=0)
     IsAvailable = models.BooleanField(default=True)
@@ -123,6 +123,13 @@ class Doctor(models.Model):
         super().clean()
         if self.StaffId and self.StaffId.Role != Staff.RoleChoices.DOCTOR:
             raise ValidationError("Staff member must have Doctor role to create doctor profile.")
+    
+    def get_consultation_days_display(self):
+        """Convert integer array to day names for display"""
+        day_names = ['', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        if isinstance(self.ConsultationDays, list):
+            return [day_names[day] for day in self.ConsultationDays if 1 <= day <= 7]
+        return []
     
     def __str__(self):
         return f"Dr. {self.StaffId.FirstName} {self.StaffId.LastName} - {self.SpecializationId.SpecializationName}"

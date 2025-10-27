@@ -115,13 +115,14 @@ class DoctorSerializer(serializers.ModelSerializer):
     specialization = SpecializationSerializer(source='SpecializationId', read_only=True)
     specialization_id = serializers.IntegerField(source='SpecializationId.id', write_only=True)
     doctor_name = serializers.SerializerMethodField()
+    consultation_days_display = serializers.SerializerMethodField()
     
     class Meta:
         model = Doctor
         fields = [
             'DoctorId', 'staff', 'staff_id', 'specialization', 'specialization_id',
-            'doctor_name', 'ConsultationFee', 'ConsultationDays', 'ConsultationTime',
-            'YearsOfExperience', 'IsAvailable', 'CreatedAt', 'UpdatedAt'
+            'doctor_name', 'ConsultationFee', 'ConsultationDays', 'consultation_days_display', 
+            'ConsultationTime', 'YearsOfExperience', 'IsAvailable', 'CreatedAt', 'UpdatedAt'
         ]
         read_only_fields = ['DoctorId', 'CreatedAt', 'UpdatedAt']
     
@@ -130,6 +131,10 @@ class DoctorSerializer(serializers.ModelSerializer):
         if obj.StaffId:
             return f"Dr. {obj.StaffId.FirstName} {obj.StaffId.LastName}"
         return None
+    
+    def get_consultation_days_display(self, obj):
+        """Get human-readable consultation days"""
+        return obj.get_consultation_days_display()
     
     def validate_staff_id(self, value):
         """Validate staff member exists and has doctor role"""
