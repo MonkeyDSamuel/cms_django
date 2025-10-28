@@ -167,3 +167,129 @@ class DoctorListView(generics.ListAPIView):
             'message': 'Available doctors retrieved successfully',
             'data': doctor_data
         }, status=status.HTTP_200_OK)
+
+
+class DoctorBySpecializationView(generics.ListAPIView):
+    """View for listing doctors by specialization"""
+    
+    permission_classes = [IsReceptionistOrDoctor]
+    
+    def get(self, request, specialization_id):
+        """Get available doctors for a specific specialization"""
+        from admin_backend_app.models import Specialization
+        
+        try:
+            # Get doctors with this specialization who are active and available
+            doctors = Doctor.objects.filter(
+                SpecializationId=specialization_id,
+                IsAvailable=True,
+                StaffId__IsActive=True
+            ).select_related('StaffId', 'SpecializationId')
+            
+            doctor_data = []
+            for doctor in doctors:
+                doctor_data.append({
+                    'DoctorId': doctor.DoctorId,
+                    'id': doctor.DoctorId,
+                    'FirstName': doctor.StaffId.FirstName,
+                    'LastName': doctor.StaffId.LastName,
+                    'first_name': doctor.StaffId.FirstName,
+                    'last_name': doctor.StaffId.LastName,
+                    'ConsultationFee': float(doctor.ConsultationFee),
+                    'consultation_fee': float(doctor.ConsultationFee),
+                    'ConsultationDays': doctor.ConsultationDays,
+                    'consultation_days': doctor.ConsultationDays,
+                    'ConsultationTime': doctor.ConsultationTime,
+                    'consultation_time': doctor.ConsultationTime,
+                    'YearsOfExperience': doctor.YearsOfExperience,
+                    'years_of_experience': doctor.YearsOfExperience,
+                    'IsAvailable': doctor.IsAvailable,
+                    'is_active': doctor.StaffId.IsActive
+                })
+            
+            return Response({
+                'message': 'Available doctors retrieved successfully',
+                'data': doctor_data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'message': f'Error retrieving doctors: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DoctorAvailableDatesView(generics.RetrieveAPIView):
+    """View for getting available dates for a doctor"""
+    
+    permission_classes = [IsReceptionistOrDoctor]
+    
+    def get(self, request, doctor_id):
+        """Get available dates for a doctor based on consultation days and times"""
+        from datetime import datetime, timedelta, time as dt_time
+        from django.utils import timezone
+        
+        try:
+            doctor = Doctor.objects.get(DoctorId=doctor_id)
+            
+            # Get consultation days (array of integers)
+            consultation_days = doctor.ConsultationDays if isinstance(doctor.ConsultationDays, list) else []
+            
+            # Get consultation time
+            consultation_time = doctor.ConsultationTime or ''
+            
+            # Parse consultation time (format: "HH:MM-HH:MM")
+            start_time = None
+            end_time = None
+            if consultation_time and '-' in consultation_time:
+                try:
+                    start_str, end_str = consultation_time.split('-')
+                    start_hour, start_min = map(int, start_str.strip().split(':'))
+                    end_hour, end_min = map(int, end_str.strip().split(':'))
+                    start_time = dt_time(start_hour, start_min)
+                    end_time = dt_time(end_hour, end_min)
+                except (ValueError, AttributeError):
+                    pass
+            
+            # Generate available dates for next 30 days
+            available_dates = []
+            current_datetime = timezone.now()
+            current_date = current_datetime.date()
+            current_time = current_datetime.time()
+            
+            for i in range(30):  # Next 30 days
+                check_date = current_date + timedelta(days=i)
+                day_of_week = check_date.weekday()  # 0=Monday, 6=Sunday in Python
+                
+                # Map Python weekday to our system (Sunday=1, Monday=2, etc.)
+                day_mapping = {0: 2, 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 1}  # Mon-Sun to our system
+                mapped_day = day_mapping[day_of_week]
+                
+                # Check if doctor is available on this day
+                if mapped_day in consultation_days:
+                    # If it's today, check if consultation time is still valid
+                    if i == 0:
+                        if start_time and end_time:
+                            # Check if current time is before end time for today
+                            if current_time >= end_time:
+                                continue  # Skip today if consultation time has passed
+                        else:
+                            # If no consultation time specified, check if it's past 5 PM
+                            if current_time >= dt_time(17, 0):
+                                continue  # Skip today if it's past 5 PM
+                    
+                    # Add this date to available dates
+                    available_dates.append(check_date.strftime('%Y-%m-%d'))
+            
+            return Response({
+                'message': 'Available dates retrieved successfully',
+                'data': available_dates
+            }, status=status.HTTP_200_OK)
+            
+        except Doctor.DoesNotExist:
+            return Response({
+                'message': 'Doctor not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                'message': f'Error retrieving available dates: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)

@@ -14,4 +14,6 @@ urlpatterns = [
     
     # Doctor endpoints (for appointment booking)
     path('doctors/', views.DoctorListView.as_view(), name='doctor-list'),
+    path('doctors/by-specialization/<int:specialization_id>/', views.DoctorBySpecializationView.as_view(), name='doctor-by-specialization'),
+    path('doctors/<int:doctor_id>/available-dates/', views.DoctorAvailableDatesView.as_view(), name='doctor-available-dates'),
 ]

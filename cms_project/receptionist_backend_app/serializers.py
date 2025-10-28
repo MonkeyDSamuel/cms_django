@@ -96,9 +96,10 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
         if not doctor.StaffId.IsActive:
             raise serializers.ValidationError("Selected doctor's account is inactive.")
         
-        # Check if appointment date is not in the past
+        # Check if appointment date is not in the past (allow same day if time hasn't passed)
         from django.utils import timezone
-        if date < timezone.now().date():
+        today = timezone.now().date()
+        if date < today:
             raise serializers.ValidationError("Appointment date cannot be in the past.")
         
         # Check doctor's consultation days and time
@@ -107,8 +108,14 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
         day_name = appointment_date.strftime('%A')  # Get day name (Monday, Tuesday, etc.)
         
         # Check if the appointment day matches doctor's consultation days
-        consultation_days = doctor.ConsultationDays.lower()
-        if day_name.lower() not in consultation_days:
+        # ConsultationDays is stored as a list of integers (Sunday=1, Monday=2, etc.)
+        consultation_days = doctor.ConsultationDays if isinstance(doctor.ConsultationDays, list) else []
+        
+        # Map Python weekday to our system (Sunday=1, Monday=2, etc.)
+        day_mapping = {0: 2, 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 1}  # Mon-Sun to our system
+        mapped_day = day_mapping[appointment_date.weekday()]
+        
+        if mapped_day not in consultation_days:
             raise serializers.ValidationError(
                 f"Doctor is not available on {day_name}. Available days: {doctor.ConsultationDays}"
             )
