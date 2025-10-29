@@ -54,10 +54,36 @@ class TestViewSet(viewsets.ModelViewSet):
 # ----------------------------
 # Prescription ViewSet (NEW)
 # ----------------------------
+# ----------------------------
+# Prescription ViewSet (UPDATED)
+# ----------------------------
 class PrescriptionViewSet(viewsets.ModelViewSet):
-    queryset = Prescription.objects.all()
+    queryset = Prescription.objects.all().order_by('-created_on')
     serializer_class = PrescriptionSerializer
     permission_classes = [IsLabTechnician]
+
+    def get_queryset(self):
+        """Filter prescriptions based on status and search"""
+        queryset = Prescription.objects.all().order_by('-created_on')
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by date
+        date_filter = self.request.query_params.get('date', None)
+        if date_filter:
+            queryset = queryset.filter(prescription_date=date_filter)
+            
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def pending_prescriptions(self, request):
+        """Get all pending prescriptions"""
+        prescriptions = Prescription.objects.filter(status='Pending').order_by('-created_on')
+        serializer = self.get_serializer(prescriptions, many=True)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
     def search_prescriptions(self, request):
@@ -65,6 +91,7 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         prescriptions = Prescription.objects.filter(
             Q(patient_name__icontains=query) | 
             Q(patient_id__icontains=query) |
+            Q(doctor_name__icontains=query) |
             Q(pres_id__icontains=query)
         )
         serializer = self.get_serializer(prescriptions, many=True)
@@ -84,6 +111,52 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    @action(detail=True, methods=['post'])
+    def create_test_result(self, request, pk=None):
+        """Create lab test result for a prescription"""
+        prescription = self.get_object()
+        
+        # Get test from lab prescription
+        lab_prescription = prescription.lab_prescription
+        if not lab_prescription:
+            return Response(
+                {"error": "No lab prescription linked"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find or create test in Test model
+        test, created = Test.objects.get_or_create(
+            test_name=lab_prescription.test_name,
+            defaults={
+                'category': Category.objects.first(),  # Default category
+                'rate': 0.00,
+                'min_value': 0,
+                'max_value': 100
+            }
+        )
+        
+        # Create lab test result
+        lab_result_data = {
+            'test': test.id,
+            'prescription': prescription.pres_id,
+            'status': 'Pending',
+            'result_value': request.data.get('result_value', ''),
+            'normal_range': request.data.get('normal_range', ''),
+            'unit': request.data.get('unit', ''),
+            'remarks': request.data.get('remarks', '')
+        }
+        
+        result_serializer = LabTestResultSerializer(data=lab_result_data)
+        if result_serializer.is_valid():
+            result_serializer.save()
+            
+            # Update prescription status
+            prescription.status = 'In Progress'
+            prescription.save()
+            
+            return Response(result_serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(result_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # ----------------------------
 # Lab Test Result ViewSet (UPDATED)

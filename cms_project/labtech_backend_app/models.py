@@ -1,5 +1,7 @@
 from django.db import models
 from django.utils import timezone
+from doctor_backend_app.models import LabPrescription  # ADD THIS IMPORT
+
 
 # ----------------------------
 # Category Table
@@ -41,11 +43,19 @@ class Test(models.Model):
         return f"{self.test_id} - {self.test_name}"
 
 
+
 # ----------------------------
-# Prescription Table (NEW)
+# Prescription Table (UPDATED)
 # ----------------------------
 class Prescription(models.Model):
     pres_id = models.AutoField(primary_key=True)
+    lab_prescription = models.OneToOneField(  # ADD THIS FIELD
+        LabPrescription, 
+        on_delete=models.CASCADE, 
+        related_name="lab_prescription",
+        null=True,
+        blank=True
+    )
     patient_name = models.CharField(max_length=100)
     patient_id = models.CharField(max_length=20)
     doctor_name = models.CharField(max_length=100)
@@ -63,8 +73,17 @@ class Prescription(models.Model):
     created_on = models.DateTimeField(default=timezone.now)
 
     def __str__(self):
-        return f"PR{pres_id:04d} - {self.patient_name}"
+        return f"PR{self.pres_id:04d} - {self.patient_name}"  # FIXED: Added self.
 
+    def save(self, *args, **kwargs):
+        # Auto-fill from lab_prescription if available
+        if self.lab_prescription and not self.patient_name:
+            consultation = self.lab_prescription.consultation
+            appointment = consultation.AppointmentId
+            self.patient_name = f"{appointment.PatientId.FirstName} {appointment.PatientId.LastName}"
+            self.patient_id = appointment.PatientId.PatientId
+            self.doctor_name = f"{appointment.DoctorId.FirstName} {appointment.DoctorId.LastName}"
+        super().save(*args, **kwargs)
 
 # ----------------------------
 # Lab Test Result Table (UPDATED with ForeignKey to Prescription)
@@ -72,7 +91,7 @@ class Prescription(models.Model):
 class LabTestResult(models.Model):
     result_id = models.AutoField(primary_key=True)
     test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name="results")
-    prescription = models.ForeignKey(Prescription, on_delete=models.CASCADE, related_name="lab_results")  # NEW
+    prescription = models.ForeignKey(Prescription, on_delete=models.CASCADE, related_name="lab_results", null=True, blank=True)  # NEW
     status = models.CharField(
         max_length=50, 
         choices=[
@@ -99,10 +118,10 @@ class LabTestResult(models.Model):
 # ----------------------------
 class LabBilling(models.Model):
     bill_id = models.AutoField(primary_key=True)
-    prescription = models.ForeignKey(Prescription, on_delete=models.CASCADE, related_name="lab_bills")  # NEW
-    bill_number = models.CharField(max_length=20, unique=True, editable=False)  # NEW
-    patient_name = models.CharField(max_length=100)  # NEW
-    patient_id = models.CharField(max_length=20)  # NEW
+    prescription = models.ForeignKey(Prescription, on_delete=models.CASCADE, related_name="lab_bills", null=True, blank=True)  # NEW
+    bill_number = models.CharField(max_length=20, unique=True, editable=False, null=True, blank=True)  # NEW
+    patient_name = models.CharField(max_length=100, null=True, blank=True)  # NEW
+    patient_id = models.CharField(max_length=20, null=True, blank=True)  # NEW
     subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # NEW
     tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # NEW
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # NEW

@@ -24,10 +24,23 @@ class TestSerializer(serializers.ModelSerializer):
 # ----------------------------
 # Prescription Serializer (NEW)
 # ----------------------------
+# ----------------------------
+# Prescription Serializer (UPDATED)
+# ----------------------------
 class PrescriptionSerializer(serializers.ModelSerializer):
+    lab_prescription_id = serializers.CharField(source='lab_prescription.labPrescriptionId', read_only=True)
+    test_name = serializers.CharField(source='lab_prescription.test_name', read_only=True)
+    test_type = serializers.CharField(source='lab_prescription.test_type', read_only=True)
+    test_instructions = serializers.CharField(source='lab_prescription.test_instructions', read_only=True)
+    fasting_required = serializers.BooleanField(source='lab_prescription.test_fasting_required', read_only=True)
+
     class Meta:
         model = Prescription
-        fields = '__all__'
+        fields = [
+            'pres_id', 'lab_prescription', 'lab_prescription_id', 'patient_name', 
+            'patient_id', 'doctor_name', 'prescription_date', 'status', 
+            'created_on', 'test_name', 'test_type', 'test_instructions', 'fasting_required'
+        ]
 
 
 # ----------------------------

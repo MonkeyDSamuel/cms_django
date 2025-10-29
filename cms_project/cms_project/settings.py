@@ -269,6 +269,7 @@ INSTALLED_APPS = [
     'receptionist_backend_app',
     'doctor_backend_app',
     'labtech_backend_app',
+    # 'lab.apps.LabConfig',
     'pharmacist_backend_app',
     'Authentication',
     'rest_framework', 
@@ -343,6 +344,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',  # CHANGED THIS LINE
